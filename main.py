@@ -1,3 +1,4 @@
+from ast import Global
 import pygame
 import random
 
@@ -5,20 +6,52 @@ pygame.init()
 
 GLOBALS = {
     'BG_COLOR': (21, 21, 21),
-    'SCREEN_SIZE': (800, 600),
-    'TILE_CORRECT_LETTER': (170, 170, 50),
-    'TILE_CORRECT_LETTER_COL': (50, 120, 50),
+    'SCREEN_SIZE': (800, 800),
+    'TILE_CORRECT_LETTER': (173, 161, 24),
+    'TILE_CORRECT_LETTER_COL': (10, 143, 39),
     'TILE_BORDER_HIGHLIGHT': (130, 130, 130),
     'TILE_BORDER_DEFAULT': (50, 50, 50),
     'FONT_COLOR': (220, 220, 220),
     'TILE_SIZE': (80, 80),
     'TILE_MARGIN': 4,
     'TILE_BORDER': 3,
+    'KEY_TILE_SIZE': (30, 40)
 }
 
 win = pygame.display.set_mode(GLOBALS['SCREEN_SIZE'])
 pygame.display.set_caption('BtrWorlde v. 1.0')
-font = pygame.font.Font('resources/Lato-Black.ttf', 38)
+big_font = pygame.font.Font('resources/Lato-Black.ttf', 38)
+small_font = pygame.font.Font('resources/Lato-Black.ttf', 14)
+
+
+class PressedKeyTile:
+    def __init__(self, x, y, letter):
+        self.letter = letter
+        self.pos = x, y
+        self.body = pygame.surface.Surface(GLOBALS['KEY_TILE_SIZE'])
+        self.colors = [
+            GLOBALS['TILE_BORDER_HIGHLIGHT'],  # default
+            GLOBALS['TILE_BORDER_DEFAULT'],  # character was clicked
+            GLOBALS['TILE_CORRECT_LETTER'],  # yellow letter
+            GLOBALS['TILE_CORRECT_LETTER_COL'],  # green letter
+        ]
+        self.color = 0
+        self.repaint()
+
+    def apply_letter(self, color: int):
+        if color > self.color:
+            self.color = color
+            self.repaint()
+
+    def repaint(self):
+        self.body.fill(self.colors[self.color])
+        text = small_font.render(self.letter.upper(), True, GLOBALS['FONT_COLOR'])
+        text_x = GLOBALS['KEY_TILE_SIZE'][0] / 2 - text.get_width() // 2
+        text_y = GLOBALS['KEY_TILE_SIZE'][1] / 2 - text.get_height() // 2
+        self.body.blit(text, (text_x, text_y))
+
+    def draw(self, surface):
+        surface.blit(self.body, self.pos)
 
 
 class Tile:
@@ -43,7 +76,7 @@ class Tile:
 
         # render text
         self.letter = char
-        text = font.render(char.upper(), True, GLOBALS['FONT_COLOR'])
+        text = big_font.render(char.upper(), True, GLOBALS['FONT_COLOR'])
         text_x = GLOBALS['TILE_SIZE'][0] / 2 - text.get_width() // 2
         text_y = GLOBALS['TILE_SIZE'][1] / 2 - text.get_height() // 2
         self.body.blit(text, (text_x, text_y))
@@ -73,12 +106,13 @@ class Game:
         self.tiles = []
         self.body = pygame.surface.Surface((
             GLOBALS['TILE_SIZE'][0] * 5 + GLOBALS['TILE_MARGIN'] * 6,
-            GLOBALS['TILE_SIZE'][1] * 6 + GLOBALS['TILE_MARGIN'] * 7,
+            GLOBALS['TILE_SIZE'][1] * 6 + GLOBALS['TILE_MARGIN'] * 7 + 300,
         ))
         self.body.fill(GLOBALS['BG_COLOR'])
         self.pos = (
             GLOBALS['SCREEN_SIZE'][0] // 2 - self.body.get_width() // 2,
-            GLOBALS['SCREEN_SIZE'][1] // 2 - self.body.get_height() // 2,
+            50
+            # GLOBALS['SCREEN_SIZE'][1] // 2 - self.body.get_height() // 2,
         )
         self.word = ''
         self.allowed_guesses = []
@@ -92,11 +126,13 @@ class Game:
         self.guessed = False
         self.cursor_col = 0
         self.cursor_row = 0
+        self.keys_pressed_map = {}
         self.reset()
 
     def reset(self):
         print(self.word)
         self.word = random.choice(self.allowed_answers)
+        self.keys_pressed = dict()
         self.guessed = False
         self.cursor_col = 0
         self.cursor_row = 0
@@ -112,10 +148,29 @@ class Game:
                 )
             self.tiles.append(row)
 
+        # keys pressed down the screen
+        self.keys_pressed_map.clear()
+        keyboard_layout = ['qwertyuiop', 'asdfghjkl', 'zxcvbnm']
+        start_y = GLOBALS['TILE_SIZE'][1] * 6 + GLOBALS['TILE_MARGIN'] * 7 + 50
+        for keyboard_level in keyboard_layout:
+            for i, c in enumerate(keyboard_level):
+                self.keys_pressed_map[c] = PressedKeyTile(
+                    GLOBALS['TILE_MARGIN'] + i * (GLOBALS['KEY_TILE_SIZE'][0] + GLOBALS['TILE_MARGIN']),
+                    start_y,
+                    c
+                )
+            start_y += GLOBALS['TILE_MARGIN'] + GLOBALS['KEY_TILE_SIZE'][1]
+
     def draw(self, surface):
+        # letter boxes
         for row in self.tiles:
             for tile in row:
                 tile.draw(self.body)
+
+        # keys pressed
+        for _, tile in self.keys_pressed_map.items():
+            tile.draw(self.body)
+
         surface.blit(self.body, self.pos)
 
     def handle_click(self, key: str):
@@ -131,6 +186,19 @@ class Game:
             word = ''.join([tile.letter for tile in self.tiles[self.cursor_row]])
             if word not in self.allowed_guesses:
                 return
+
+            for i, char in enumerate(word):
+                if char in self.word:
+                    if self.word[i] == char:
+                        # green letter
+                        self.keys_pressed_map[char].apply_letter(3)
+                    else:
+                        # yellow letter
+                        self.keys_pressed_map[char].apply_letter(2)
+                else:
+                    # grey letter (dark grey - missed)
+                    self.keys_pressed_map[char].apply_letter(1)
+
             if self.cursor_col == 5:
                 for i in range(5):
                     tile = self.tiles[self.cursor_row][i]
